@@ -1,95 +1,91 @@
-Water Level Gauge Detection and Reading
-(YOLOv8 Segmentation + YOLOv8 Detection + OCR)
+# Water Level Gauge Detection and Reading  
+### YOLOv8 Segmentation + YOLOv8 Detection + OCR
 
-This project is a complete computer-vision pipeline to automatically detect river water level gauges from field images, segment the gauge region, detect printed gauge numerals, and estimate the actual water level. The system uses two YOLOv8 models plus OCR:
+This project provides a complete computer-vision pipeline to automatically detect river water level gauges, segment them, detect printed gauge numerals, and estimate the water level.
 
-Segmentation Model – Detects and masks the gauge scale.
+The system uses:
 
-Number Detection Model – Detects printed gauge numbers (150, 200, 250, 300, 350, etc).
+- **YOLOv8 Segmentation** (gauge ruler isolation)  
+- **YOLOv8 Detection** (gauge number detection)  
+- **OCR (EasyOCR)** for optional digit verification  
+- **COCO → YOLO polygon conversion utilities**  
+- **TFLite export** for mobile deployment  
 
-OCR (EasyOCR) – Optional digit reading & sanity checks.
+---
 
-Additional utilities handle COCO-to-YOLO polygon conversion, dataset structuring, training, inference, and model export to TFLite.
+## Goals
 
-📌 Goals of the System
+- Detect and segment water level gauges in field images  
+- Detect fixed printed gauge numbers (150, 200, 250, etc.)  
+- Optionally cross-validate number detection using OCR  
+- Convert COCO segmentation to YOLO polygon format  
+- Train the models in Google Colab or locally  
+- Export YOLO models to TFLite for Android app integration  
+- Compute final water level using calibrated logic  
 
-Detect the physical gauge ruler in field images using a segmentation model.
+---
 
-Crop the gauge region and run a number detection model on the ROI.
+# Pipeline Overview
 
-Optionally validate detected classes using OCR.
-
-Convert COCO segmentation datasets into YOLOv8 polygon format.
-
-Train both models in Google Colab or locally.
-
-Export both models to TFLite for Android deployment.
-
-Estimate the final water level in centimeters using calibration logic.
-
-🔄 Overall Pipeline (High-Level)
 ┌─────────────────┐
-│  Input Images   │
-│  (Field Photos) │
+│ Input Images │
+│ (Field Photos) │
 └────────┬────────┘
-         │
-         ▼
+│
+▼
 ┌─────────────────────────┐
-│ YOLOv8 Segmentation     │
-│ (Gauge Seg Model)       │
+│ YOLOv8 Segmentation │
+│ (Gauge Seg Model) │
 └────────┬────────────────┘
-         │  gauge mask + box
-         ▼
+│ gauge mask + box
+▼
 ┌─────────────────────────┐
-│  Crop Gauge Region      │
+│ Crop Gauge Region │
 └────────┬────────────────┘
-         │  cropped ROI
-         ▼
+│ cropped ROI
+▼
 ┌─────────────────────────┐
-│ YOLOv8 Detection        │
-│ (Gauge Number Model)    │
+│ YOLOv8 Detection │
+│ (Gauge Number Model) │
 └────────┬────────────────┘
-         │  class IDs: 150/200/…
-         ▼
+│ detected classes
+▼
 ┌─────────────────────────┐
-│ Optional EasyOCR Check  │
-│ (Digits / Consistency)  │
+│ Optional OCR Check │
 └────────┬────────────────┘
-         │
-         ▼
+│
+▼
 ┌─────────────────────────┐
-│  Water Level Estimator  │
-│  (Calibrated Output)    │
+│ Water Level Estimator │
 └─────────────────────────┘
 
-🧠 Model Overview
-1️⃣ Segmentation Model (YOLOv8-Seg)
 
-Class: water_level_gauge
+---
 
-Produces:
-✔ segmentation mask
-✔ bounding box
+# Models
 
-Purpose: isolate gauge so downstream logic ignores background clutter.
+## 1. Segmentation Model (YOLOv8-Seg)
 
-2️⃣ Number Detection Model (YOLOv8)
+- Class: `water_level_gauge`
+- Output: mask + bounding box  
+- Purpose: isolate gauge ruler from background clutter
 
-Classes: 150, 200, 250, 300, 350 (or your custom set)
+## 2. Number Detection Model (YOLOv8)
 
-Detect discrete printed numbers on the gauge.
+- Classes: 150, 200, 250, 300, 350  
+- Output: bounding boxes + class IDs  
+- Mapped to real-world heights for water-level estimation  
 
-Each detected class is mapped to a real-world height via calibration.
+---
 
-🚀 Usage
-✔ Training (CLI Recommended)
-Segmentation Model
+# Training
+
+## Segmentation Model
+
 yolo task=segment mode=train model=yolov8n-seg.pt data=data_seg.yaml epochs=40 imgsz=640
-
-Number Detection Model
 yolo task=detect mode=train model=yolov8n.pt data=data_num.yaml epochs=40 imgsz=640
 
-✔ Inference (Python API)
+Inference Pipeline (Python):
 from ultralytics import YOLO
 import easyocr
 
@@ -97,15 +93,12 @@ seg_model = YOLO("best_seg.pt")
 num_model = YOLO("best_num.pt")
 ocr = easyocr.Reader(['en'])
 
-# 1) run segmentation → get gauge mask & bbox
+# 1) segmentation → gauge mask + box
 # 2) crop gauge region
-# 3) run number detection model on crop
-# 4) optional OCR and water-level computation
+# 3) detection on cropped ROI
+# 4) optional OCR + water level estimation
 
-
-The script also supports overlay visualization of masks, bounding boxes, and predicted levels.
-
-📁 Dataset Structure
+Dataset Structure:
 dataset_root/
 ├── seg/
 │   ├── train/images/
@@ -120,94 +113,49 @@ dataset_root/
     ├── valid/labels/
     └── data_num.yaml
 
-🔧 Segmentation Conversion Pipeline
-COCO Format (_annotations.coco.json)
-        │
-        ▼
-Normalized YOLO Polygon Labels (*.txt)
-        │
-        ▼
+COCO → YOLO Segmentation Conversion:
+COCO JSON
+   │
+   ▼
+YOLO Polygon Labels (*.txt)
+   │
+   ▼
 YOLOv8 Segmentation Dataset
 
-🔢 Number Detection Labels
-
-Standard YOLO bounding box labels.
-
-Example class mapping:
-
-0 → 150
-1 → 200
-2 → 250
-3 → 300
+Number Detection Class Mapping:
+0 → 150  
+1 → 200  
+2 → 250  
+3 → 300  
 4 → 350
 
-🏗 Model Architectures
-Segmentation
-Input → YOLOv8 Backbone
-         │
-         ├── Segmentation Head → gauge mask
-         └── Detection Head → gauge box
-
-Number Detection
-Input (cropped ROI) → YOLOv8 Backbone → Detection Head
-
-📤 Export to TFLite
+Export to TFLite:
 from ultralytics import YOLO
 
 YOLO("best_seg.pt").export(format="tflite", imgsz=640, nms=False)
 YOLO("best_num.pt").export(format="tflite", imgsz=640, nms=True)
 
-
-Exported .tflite models are integrated into your Android app.
-
-📊 Results
+Results
 Segmentation Model
 
 High mAP
 
-Clean masks even in noisy real-world scenes
+Clean, robust masks even in noisy conditions
 
 Number Detection Model
 
-Very high accuracy on curated dataset
+Very high accuracy for fixed printed numbers
 
-Robust detection of classes
+End-to-End Performance
 
-End-to-End Pipeline
+Stable and accurate water level estimation in centimeters
 
-Stable water level estimates
+License:
+MIT License
 
-Reliable even with reflections, lighting changes, clutter
-
-Artifacts such as PR curves, training graphs, and confusion matrices are stored under:
-
-runs/segment/...
-runs/detect/...
-
-🤝 Contributing
-
-Fork the repo and create pull requests.
-
-Keep paths and configs flexible.
-
-Maintain modular folder structure:
-
-dataset_tools/  
-training/  
-inference/
-
-📜 License
-
-MIT License — free to use, modify, and distribute.
-
-🙏 Acknowledgments
-
+Acknowledgments:
 Ultralytics YOLOv8
-
 EasyOCR
-
 PyTorch
-
-COCO Format
-
-Google Colab + Drive
+COCO Dataset Format
+Google Colab + Google Drive
